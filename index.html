@@ -69251,6 +69251,7 @@
             // キャッシュ確認
             if (brandAnalysisCache[brandKey]) {
                 container.innerHTML = brandAnalysisCache[brandKey];
+                setTimeout(() => renderBrandCharts(brandKey), 50);
                 return;
             }
 
@@ -69321,8 +69322,96 @@
 
         // ブランドチャートの描画
         function renderBrandCharts(brandKey) {
-            // TODO: Plotlyチャート実装
-            console.log('Rendering charts for:', brandKey);
+            const brandData = NECKLACE_DATA.items.filter(item => {
+                const itemBrand = item[3];
+                return itemBrand && itemBrand.toLowerCase().includes(brandKey.toLowerCase());
+            });
+
+            if (brandData.length === 0) return;
+
+            // モチーフ別集計
+            const motifStats = {};
+            brandData.forEach(item => {
+                const motif = item[4] || '(不明)';
+                if (!motifStats[motif]) {
+                    motifStats[motif] = { count: 0, totalPrice: 0, prices: [] };
+                }
+                motifStats[motif].count++;
+                motifStats[motif].totalPrice += item[2];
+                motifStats[motif].prices.push(item[2]);
+            });
+
+            // モチーフテーブル生成
+            let tableHTML = '<table><thead><tr><th>モチーフ</th><th>販売数</th><th>平均価格</th><th>仕入れ上限中央値</th></tr></thead><tbody>';
+            Object.entries(motifStats).sort((a, b) => b[1].count - a[1].count).forEach(([motif, stats]) => {
+                const avgPrice = (stats.totalPrice / stats.count).toFixed(2);
+                const medianPrice = stats.prices.sort((a, b) => a - b)[Math.floor(stats.prices.length / 2)];
+                const profitCeiling = Math.round(medianPrice * currentExchangeRate * (1 - currentFeeRate) - currentShipping);
+                tableHTML += `<tr><td>${motif}</td><td>${stats.count}</td><td>$${avgPrice}</td><td>¥${profitCeiling.toLocaleString()}</td></tr>`;
+            });
+            tableHTML += '</tbody></table>';
+            document.getElementById(`motif-table-${brandKey}`).innerHTML = tableHTML;
+
+            // モチーフ別棒グラフ
+            const motifNames = Object.keys(motifStats).sort((a, b) => motifStats[b].count - motifStats[a].count);
+            const motifCounts = motifNames.map(m => motifStats[m].count);
+            Plotly.newPlot(`motif-chart-${brandKey}`, [{
+                x: motifNames,
+                y: motifCounts,
+                type: 'bar',
+                marker: { color: '#E91E63' }
+            }], {
+                title: 'モチーフ別販売数',
+                xaxis: { title: 'モチーフ' },
+                yaxis: { title: '販売数' },
+                height: 300,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
+
+            // 素材別集計
+            const materialStats = {};
+            brandData.forEach(item => {
+                const material = item[5] || '(不明)';
+                materialStats[material] = (materialStats[material] || 0) + 1;
+            });
+
+            // 素材別円グラフ
+            const materialNames = Object.keys(materialStats);
+            const materialCounts = materialNames.map(m => materialStats[m]);
+            Plotly.newPlot(`material-chart-${brandKey}`, [{
+                values: materialCounts,
+                labels: materialNames,
+                type: 'pie'
+            }], {
+                title: '素材別割合',
+                height: 300,
+                paper_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
+
+            // 状態別集計
+            const conditionStats = {};
+            brandData.forEach(item => {
+                const condition = item[6] || 'Used';
+                if (!conditionStats[condition]) {
+                    conditionStats[condition] = [];
+                }
+                conditionStats[condition].push(item[2]);
+            });
+
+            // 状態別箱ひげ図
+            const conditionData = Object.entries(conditionStats).map(([condition, prices]) => ({
+                y: prices,
+                type: 'box',
+                name: condition
+            }));
+            Plotly.newPlot(`condition-chart-${brandKey}`, conditionData, {
+                title: '状態別価格分布',
+                yaxis: { title: '価格 (USD)' },
+                height: 300,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
         }
 
         // サマリー描画
@@ -69330,20 +69419,181 @@
             if (!NECKLACE_DATA || !NECKLACE_DATA.summary) return;
 
             const summary = NECKLACE_DATA.summary;
+            const items = NECKLACE_DATA.items;
+
+            // 統計カード更新
             document.getElementById('total-items').textContent = NECKLACE_DATA.meta.total_items.toLocaleString();
             document.getElementById('total-brands').textContent = NECKLACE_DATA.meta.total_brands;
 
-            // TODO: チャート実装
+            const avgPrice = (items.reduce((sum, item) => sum + item[2], 0) / items.length).toFixed(2);
+            document.getElementById('avg-price').textContent = `$${avgPrice}`;
+
+            const totalRevenue = items.reduce((sum, item) => sum + item[2], 0).toFixed(0);
+            document.getElementById('total-revenue').textContent = `$${parseInt(totalRevenue).toLocaleString()}`;
+
+            // ブランド別TOP20
+            const brandCounts = {};
+            items.forEach(item => {
+                const brand = item[3] || '(不明)';
+                brandCounts[brand] = (brandCounts[brand] || 0) + 1;
+            });
+            const topBrands = Object.entries(brandCounts).sort((a, b) => b[1] - a[1]).slice(0, 20);
+            Plotly.newPlot('chart-brands-top20', [{
+                x: topBrands.map(b => b[0]),
+                y: topBrands.map(b => b[1]),
+                type: 'bar',
+                marker: { color: '#E91E63' }
+            }], {
+                title: 'ブランド別販売数 TOP20',
+                xaxis: { tickangle: -45 },
+                yaxis: { title: '販売数' },
+                height: 400,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
+
+            // 素材別円グラフ
+            const materialCounts = {};
+            items.forEach(item => {
+                const material = item[5] || '(不明)';
+                materialCounts[material] = (materialCounts[material] || 0) + 1;
+            });
+            const materialEntries = Object.entries(materialCounts).sort((a, b) => b[1] - a[1]);
+            Plotly.newPlot('chart-materials-pie', [{
+                values: materialEntries.map(m => m[1]),
+                labels: materialEntries.map(m => m[0]),
+                type: 'pie'
+            }], {
+                title: '素材別割合',
+                height: 400,
+                paper_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
+
+            // 価格帯分布
+            const prices = items.map(item => item[2]);
+            Plotly.newPlot('chart-price-distribution', [{
+                x: prices,
+                type: 'histogram',
+                marker: { color: '#9C27B0' },
+                nbinsx: 30
+            }], {
+                title: '価格帯分布',
+                xaxis: { title: '価格 (USD)' },
+                yaxis: { title: '件数' },
+                height: 400,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
+
+            // モチーフ別TOP15
+            const motifCounts = {};
+            items.forEach(item => {
+                const motif = item[4] || '(不明)';
+                motifCounts[motif] = (motifCounts[motif] || 0) + 1;
+            });
+            const topMotifs = Object.entries(motifCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
+            Plotly.newPlot('chart-motifs-top15', [{
+                y: topMotifs.map(m => m[0]),
+                x: topMotifs.map(m => m[1]),
+                type: 'bar',
+                orientation: 'h',
+                marker: { color: '#FF9800' }
+            }], {
+                title: 'モチーフ別人気 TOP15',
+                xaxis: { title: '販売数' },
+                height: 400,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            }, { responsive: true, displayModeBar: false });
         }
 
         // 素材別分析
         function renderMaterialsAnalysis() {
-            // TODO: 実装
+            const container = document.getElementById('materials-analysis-container');
+
+            if (!NECKLACE_DATA || !NECKLACE_DATA.items) {
+                container.innerHTML = '<p>データがありません</p>';
+                return;
+            }
+
+            const items = NECKLACE_DATA.items;
+
+            // 素材別集計
+            const materialStats = {};
+            items.forEach(item => {
+                const material = item[5] || '(不明)';
+                if (!materialStats[material]) {
+                    materialStats[material] = { count: 0, prices: [], profitCeilings: [] };
+                }
+                materialStats[material].count++;
+                materialStats[material].prices.push(item[2]);
+                materialStats[material].profitCeilings.push(item[7]);
+            });
+
+            // テーブル生成
+            let html = '<div class="table-container"><table><thead><tr><th>素材</th><th>販売数</th><th>平均価格</th><th>価格レンジ</th><th>仕入れ上限中央値</th></tr></thead><tbody>';
+            Object.entries(materialStats).sort((a, b) => b[1].count - a[1].count).forEach(([material, stats]) => {
+                const avgPrice = (stats.prices.reduce((a, b) => a + b, 0) / stats.count).toFixed(2);
+                const minPrice = Math.min(...stats.prices).toFixed(2);
+                const maxPrice = Math.max(...stats.prices).toFixed(2);
+                const sortedPrices = stats.prices.sort((a, b) => a - b);
+                const medianPrice = sortedPrices[Math.floor(sortedPrices.length / 2)];
+                const profitCeiling = Math.round(medianPrice * currentExchangeRate * (1 - currentFeeRate) - currentShipping);
+
+                html += `<tr>
+                    <td><strong>${material}</strong></td>
+                    <td>${stats.count}</td>
+                    <td>$${avgPrice}</td>
+                    <td>$${minPrice} - $${maxPrice}</td>
+                    <td>¥${profitCeiling.toLocaleString()}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+
+            container.innerHTML = html;
         }
 
         // おすすめ商品
         function renderRecommendedItems() {
-            // TODO: 実装
+            const tbody = document.getElementById('recommended-tbody');
+
+            if (!NECKLACE_DATA || !NECKLACE_DATA.items) {
+                tbody.innerHTML = '<tr><td colspan="8">データがありません</td></tr>';
+                return;
+            }
+
+            // 販売数2件以上 × 利益率20%以上
+            const recommended = NECKLACE_DATA.items.filter(item => {
+                // 販売数は実際のデータに依存（ここでは全て1件と仮定）
+                const profitRate = item[8]; // profit_rate
+                return profitRate >= 20;
+            }).sort((a, b) => b[8] - a[8]).slice(0, 100); // TOP100
+
+            let html = '';
+            recommended.forEach((item, index) => {
+                const title = item[1];
+                const brand = item[3];
+                const priceUsd = item[2].toFixed(2);
+                const profitCeiling = item[7];
+                const profitRate = item[8].toFixed(1);
+                const salesCount = 1; // 仮
+
+                html += `<tr>
+                    <td>${index + 1}</td>
+                    <td>${title}</td>
+                    <td>${brand}</td>
+                    <td>$${priceUsd}</td>
+                    <td>¥${profitCeiling.toLocaleString()}</td>
+                    <td class="positive">${profitRate}%</td>
+                    <td>${salesCount}</td>
+                    <td>
+                        <a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(title)}&LH_Sold=1" target="_blank" class="link-btn link-ebay">eBay</a>
+                        <a href="https://jp.mercari.com/search?keyword=${encodeURIComponent(brand + ' ネックレス')}&status=on_sale" target="_blank" class="link-btn link-mercari">メルカリ</a>
+                    </td>
+                </tr>`;
+            });
+
+            tbody.innerHTML = html || '<tr><td colspan="8">条件に一致する商品がありません</td></tr>';
         }
 
         // 価格再計算
