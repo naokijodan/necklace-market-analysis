@@ -69311,14 +69311,31 @@
                     </div>
 
                     <div class="brand-analysis-section">
-                        <h3>おすすめ検索クエリ</h3>
-                        <p>
-                            <a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(brandName + ' necklace')}&LH_Sold=1" target="_blank" class="link-btn link-ebay">🔗 eBay Sold</a>
-                            <a href="https://jp.mercari.com/search?keyword=${encodeURIComponent(brandName + ' ネックレス')}&status=on_sale" target="_blank" class="link-btn link-mercari">🔗 メルカリ販売中</a>
-                        </p>
+                        <h3>素材別テーブル</h3>
+                        <div class="table-container" id="material-table-${brandKey}"></div>
                     </div>
                 </div>
             `;
+        }
+
+        // 検索リンク生成ヘルパー
+        function makeSearchLinks(keywords, opts = {}) {
+            // keywords: { brand, motif, material } など
+            const ebayParts = [];
+            const mercariParts = [];
+
+            if (keywords.brand) { ebayParts.push(keywords.brand); mercariParts.push(keywords.brand); }
+            if (keywords.motif && keywords.motif !== '(不明)') { ebayParts.push(keywords.motif); mercariParts.push(keywords.motif); }
+            if (keywords.material && keywords.material !== '(不明)') { ebayParts.push(keywords.material); mercariParts.push(keywords.material); }
+            ebayParts.push('necklace');
+            mercariParts.push('ネックレス');
+
+            const ebayQ = ebayParts.join(' ');
+            const mercariQ = mercariParts.join(' ');
+            const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(ebayQ)}&LH_Sold=1`;
+            const mercariUrl = `https://jp.mercari.com/search?keyword=${encodeURIComponent(mercariQ)}&status=on_sale`;
+
+            return `<a href="${ebayUrl}" target="_blank" class="link-btn link-ebay">eBay</a> <a href="${mercariUrl}" target="_blank" class="link-btn link-mercari">メルカリ</a>`;
         }
 
         // ブランドチャートの描画
@@ -69340,12 +69357,13 @@
             });
 
             // モチーフテーブル生成
-            let tableHTML = '<table><thead><tr><th>モチーフ</th><th>販売数</th><th>平均価格</th><th>仕入れ上限中央値</th></tr></thead><tbody>';
+            let tableHTML = '<table><thead><tr><th>モチーフ</th><th>販売数</th><th>平均価格</th><th>仕入れ上限中央値</th><th>検索</th></tr></thead><tbody>';
             Object.entries(motifStats).sort((a, b) => b[1].count - a[1].count).forEach(([motif, stats]) => {
                 const avgPrice = (stats.totalPrice / stats.count).toFixed(2);
                 const medianPrice = stats.prices.sort((a, b) => a - b)[Math.floor(stats.prices.length / 2)];
                 const profitCeiling = Math.round(medianPrice * currentExchangeRate * (1 - currentFeeRate) - currentShipping);
-                tableHTML += `<tr><td>${motif}</td><td>${stats.count}</td><td>$${avgPrice}</td><td>¥${profitCeiling.toLocaleString()}</td></tr>`;
+                const links = makeSearchLinks({ brand: brandName, motif: motif });
+                tableHTML += `<tr><td>${motif}</td><td>${stats.count}</td><td>$${avgPrice}</td><td>¥${profitCeiling.toLocaleString()}</td><td>${links}</td></tr>`;
             });
             tableHTML += '</tbody></table>';
             document.getElementById(`motif-table-${brandKey}`).innerHTML = tableHTML;
@@ -69368,15 +69386,28 @@
             }, { responsive: true, displayModeBar: false });
 
             // 素材別集計
-            const materialStats = {};
+            const materialStats2 = {};
             brandData.forEach(item => {
                 const material = item[5] || '(不明)';
-                materialStats[material] = (materialStats[material] || 0) + 1;
+                if (!materialStats2[material]) materialStats2[material] = { count: 0, prices: [] };
+                materialStats2[material].count++;
+                materialStats2[material].prices.push(item[2]);
             });
 
+            // 素材別テーブル生成
+            let matTableHTML = '<table><thead><tr><th>素材</th><th>販売数</th><th>平均価格</th><th>検索</th></tr></thead><tbody>';
+            Object.entries(materialStats2).sort((a, b) => b[1].count - a[1].count).forEach(([material, stats]) => {
+                const avgPrice = (stats.prices.reduce((a, b) => a + b, 0) / stats.count).toFixed(2);
+                const links = makeSearchLinks({ brand: brandName, material: material });
+                matTableHTML += `<tr><td>${material}</td><td>${stats.count}</td><td>$${avgPrice}</td><td>${links}</td></tr>`;
+            });
+            matTableHTML += '</tbody></table>';
+            const matTableEl = document.getElementById(`material-table-${brandKey}`);
+            if (matTableEl) matTableEl.innerHTML = matTableHTML;
+
             // 素材別円グラフ
-            const materialNames = Object.keys(materialStats);
-            const materialCounts = materialNames.map(m => materialStats[m]);
+            const materialNames = Object.keys(materialStats2);
+            const materialCounts = materialNames.map(m => materialStats2[m].count);
             Plotly.newPlot(`material-chart-${brandKey}`, [{
                 values: materialCounts,
                 labels: materialNames,
@@ -69529,7 +69560,7 @@
             });
 
             // テーブル生成
-            let html = '<div class="table-container"><table><thead><tr><th>素材</th><th>販売数</th><th>平均価格</th><th>価格レンジ</th><th>仕入れ上限中央値</th></tr></thead><tbody>';
+            let html = '<div class="table-container"><table><thead><tr><th>素材</th><th>販売数</th><th>平均価格</th><th>価格レンジ</th><th>仕入れ上限中央値</th><th>検索</th></tr></thead><tbody>';
             Object.entries(materialStats).sort((a, b) => b[1].count - a[1].count).forEach(([material, stats]) => {
                 const avgPrice = (stats.prices.reduce((a, b) => a + b, 0) / stats.count).toFixed(2);
                 const minPrice = Math.min(...stats.prices).toFixed(2);
@@ -69537,6 +69568,7 @@
                 const sortedPrices = stats.prices.sort((a, b) => a - b);
                 const medianPrice = sortedPrices[Math.floor(sortedPrices.length / 2)];
                 const profitCeiling = Math.round(medianPrice * currentExchangeRate * (1 - currentFeeRate) - currentShipping);
+                const links = makeSearchLinks({ material: material });
 
                 html += `<tr>
                     <td><strong>${material}</strong></td>
@@ -69544,6 +69576,7 @@
                     <td>$${avgPrice}</td>
                     <td>$${minPrice} - $${maxPrice}</td>
                     <td>¥${profitCeiling.toLocaleString()}</td>
+                    <td>${links}</td>
                 </tr>`;
             });
             html += '</tbody></table></div>';
@@ -69576,6 +69609,10 @@
                 const profitRate = item[8].toFixed(1);
                 const salesCount = 1; // 仮
 
+                const motif = item[4];
+                const material = item[5];
+                const links = makeSearchLinks({ brand: brand, motif: motif, material: material });
+
                 html += `<tr>
                     <td>${index + 1}</td>
                     <td>${title}</td>
@@ -69584,10 +69621,7 @@
                     <td>¥${profitCeiling.toLocaleString()}</td>
                     <td class="positive">${profitRate}%</td>
                     <td>${salesCount}</td>
-                    <td>
-                        <a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(title)}&LH_Sold=1" target="_blank" class="link-btn link-ebay">eBay</a>
-                        <a href="https://jp.mercari.com/search?keyword=${encodeURIComponent(brand + ' ネックレス')}&status=on_sale" target="_blank" class="link-btn link-mercari">メルカリ</a>
-                    </td>
+                    <td>${links}</td>
                 </tr>`;
             });
 
