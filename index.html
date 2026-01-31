@@ -69251,7 +69251,7 @@
             // キャッシュ確認
             if (brandAnalysisCache[brandKey]) {
                 container.innerHTML = brandAnalysisCache[brandKey];
-                setTimeout(() => renderBrandCharts(brandKey), 50);
+                setTimeout(() => renderBrandCharts(brandKey, brandName), 50);
                 return;
             }
 
@@ -69265,17 +69265,18 @@
                 brandAnalysisCache[brandKey] = html;
 
                 // チャート描画
-                renderBrandCharts(brandKey);
+                renderBrandCharts(brandKey, brandName);
             }, 100);
         }
 
         // ブランド分析HTMLの生成
+        function getBrandDataByKey(brandName) {
+            return NECKLACE_DATA.items.filter(item => item[3] === brandName);
+        }
+
         function generateBrandAnalysisHTML(brandKey, brandName) {
-            // ブランドデータのフィルタリング
-            const brandData = NECKLACE_DATA.items.filter(item => {
-                const itemBrand = item[3]; // columns[3] = brand
-                return itemBrand && itemBrand.toLowerCase().includes(brandKey.toLowerCase());
-            });
+            // ブランドデータのフィルタリング（元のブランド名で完全一致）
+            const brandData = getBrandDataByKey(brandName);
 
             if (brandData.length === 0) {
                 return `<p style="text-align: center; padding: 40px; color: var(--text-secondary);">
@@ -69321,11 +69322,8 @@
         }
 
         // ブランドチャートの描画
-        function renderBrandCharts(brandKey) {
-            const brandData = NECKLACE_DATA.items.filter(item => {
-                const itemBrand = item[3];
-                return itemBrand && itemBrand.toLowerCase().includes(brandKey.toLowerCase());
-            });
+        function renderBrandCharts(brandKey, brandName) {
+            const brandData = getBrandDataByKey(brandName);
 
             if (brandData.length === 0) return;
 
